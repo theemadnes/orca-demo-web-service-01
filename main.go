@@ -10,6 +10,10 @@ import (
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Response represents the simple hello world payload.
@@ -41,6 +45,36 @@ var (
 	lastRequestCount int64
 	lastErrorCount   int64
 	lastUpdateTime   time.Time
+
+	// Prometheus Metrics
+	promCPUUtilization = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "orca_cpu_utilization",
+		Help: "CPU utilization fraction (0.0-1.0)",
+	})
+	promMemUtilization = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "orca_mem_utilization",
+		Help: "Memory utilization fraction (0.0-1.0)",
+	})
+	promAppUtilization = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "orca_application_utilization",
+		Help: "Application utilization fraction (0.0-1.0)",
+	})
+	promRPS = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "orca_rps",
+		Help: "Requests per second",
+	})
+	promEPS = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "orca_eps",
+		Help: "Errors per second",
+	})
+	promTotalRequests = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "orca_total_requests_total",
+		Help: "Total number of requests",
+	})
+	promTotalErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "orca_total_errors_total",
+		Help: "Total number of errors (5xx)",
+	})
 )
 
 // statusResponseWriter captures the status code written to the response.
@@ -76,10 +110,12 @@ func orcaMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// 4. Increment counts after completion for consistency in the window
 		statsMutex.Lock()
 		totalRequestCount++
+		promTotalRequests.Inc()
 		// Only count 5xx (Server Errors) as EPS.
 		// 4xx (Client Errors like 404) are usually excluded from ORCA error rates.
 		if sw.statusCode >= 500 {
 			totalErrorCount++
+			promTotalErrors.Inc()
 		}
 		statsMutex.Unlock()
 	}
@@ -131,14 +167,24 @@ func updateMetrics() {
 		// 4. Update the global report state
 		metricsMutex.Lock()
 		if len(cpuPercent) > 0 {
-			currentMetrics.CPUUtilization = cpuPercent[0] / 100.0
+			val := cpuPercent[0] / 100.0
+			currentMetrics.CPUUtilization = val
+			promCPUUtilization.Set(val)
 		}
 		if vmStat != nil {
-			currentMetrics.MemUtilization = vmStat.UsedPercent / 100.0
+			val := vmStat.UsedPercent / 100.0
+			currentMetrics.MemUtilization = val
+			promMemUtilization.Set(val)
 		}
 		currentMetrics.ApplicationUtilization = 0.1
+		promAppUtilization.Set(0.1)
+
 		currentMetrics.RPSFractional = rps
+		promRPS.Set(rps)
+
 		currentMetrics.EPS = eps
+		promEPS.Set(eps)
+
 		currentMetrics.NamedMetrics = map[string]float64{
 			"total_requests": float64(snapTotalRequests),
 			"total_errors":   float64(snapTotalErrors),
@@ -168,6 +214,7 @@ func main() {
 	go updateMetrics()
 
 	http.HandleFunc("/", orcaMetricsMiddleware(helloHandler))
+	http.Handle("/metrics", promhttp.Handler())
 
 	port := ":8080"
 	log.Printf("Server starting on %s...", port)
