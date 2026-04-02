@@ -98,7 +98,7 @@ func orcaMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		metricsMutex.RUnlock()
 
 		if orcaBytes, err := json.Marshal(report); err == nil {
-			w.Header().Set("endpoint-load-metrics-json", fmt.Sprintf("JSON %s", string(orcaBytes)))
+			w.Header().Set("endpoint-load-metrics", fmt.Sprintf("JSON %s", string(orcaBytes)))
 		}
 
 		// 2. Wrap ResponseWriter to capture the status code
