@@ -1,0 +1,23 @@
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: orca-backend-pol
+spec:
+  default:
+    # Access logging configuration for the load balancer.
+    logging:
+      enabled: true
+      # Log 50% of the requests. The value must be an integer between 0 and
+      # 1000000. To get the proportion of requests to log, GKE
+      # divides this value by 1000000.
+      sampleRate: 500000
+      # Log specific optional fields.
+      optionalMode: CUSTOM
+      optionalFields:
+      - orca_load_report.cpu_utilization
+      - orca_load_report.eps
+      - orca_load_report.rps_fractional
+  targetRef:
+    group: ""
+    kind: Service
+    name: cpu-heavy-service-orca

@@ -1,0 +1,19 @@
+apiVersion: networking.gke.io/v1
+kind: GCPTrafficDistributionPolicy
+metadata:
+  name: cpu-heavy-service-orca
+spec:
+  targetRefs:
+  # This attaches the policy to your existing Kubernetes Service
+  - kind: Service
+    group: ""
+    name: cpu-heavy-service-orca # Change to your Service name
+  default:
+    # Enables custom-metric-based endpoint weighting
+    localityLbAlgorithm: WEIGHTED_ROUND_ROBIN
+    customMetrics:
+    # References the built-in ORCA CPU utilization field
+    - name: orca.cpu_utilization
+      # Set to 'true' if you only want to send data to Cloud Monitoring 
+      # without actually affecting load balancing weights yet.
+      dryRun: false

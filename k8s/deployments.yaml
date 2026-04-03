@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-heavy-app-default
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: cpu-heavy-app
+  template:
+    metadata:
+      labels:
+        app: cpu-heavy-app
+    spec:
+      nodeSelector:
+        cloud.google.com/compute-class: default-compute-class-any
+      containers:
+      - name: app
+        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:01
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-heavy-app-n4
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: cpu-heavy-app
+  template:
+    metadata:
+      labels:
+        app: cpu-heavy-app
+    spec:
+      nodeSelector:
+        cloud.google.com/compute-class: n4-compute-class-any
+      containers:
+      - name: app
+        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:01
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
