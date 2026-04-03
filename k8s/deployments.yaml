@@ -16,7 +16,7 @@ spec:
         cloud.google.com/compute-class: default-compute-class-any
       containers:
       - name: app
-        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:01
+        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:02
         ports:
         - containerPort: 8080
         resources:
@@ -45,7 +45,7 @@ spec:
         cloud.google.com/compute-class: n4-compute-class-any
       containers:
       - name: app
-        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:01
+        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:02
         ports:
         - containerPort: 8080
         resources:

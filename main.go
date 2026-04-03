@@ -68,12 +68,12 @@ func fetchZone() {
 
 // ORCALoadReport represents the load metrics for ORCA.
 type ORCALoadReport struct {
-	CPUUtilization         float64            `json:"cpu_utilization,omitempty"`
-	MemUtilization         float64            `json:"mem_utilization,omitempty"`
-	ApplicationUtilization float64            `json:"application_utilization,omitempty"`
-	RPSFractional          float64            `json:"rps_fractional"` // Mandatory for Weighted Round Robin
-	EPS                    float64            `json:"eps"`            // Mandatory for Weighted Round Robin
-	NamedMetrics           map[string]float64 `json:"named_metrics,omitempty"`
+	CPUUtilization         float64            `json:"orca.cpu_utilization,omitempty"`
+	MemUtilization         float64            `json:"orca.mem_utilization,omitempty"`
+	ApplicationUtilization float64            `json:"orca.application_utilization,omitempty"`
+	RPSFractional          float64            `json:"orca.rps_fractional"` // Mandatory for Weighted Round Robin
+	EPS                    float64            `json:"orca.eps"`            // Mandatory for Weighted Round Robin
+	NamedMetrics           map[string]float64 `json:"orca.named_metrics,omitempty"`
 }
 
 var (
