@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +21,49 @@ import (
 
 // Response represents the simple hello world payload.
 type Response struct {
-	Message string `json:"message"`
+	Message   string  `json:"message"`
+	Zone      *string `json:"zone"`
+	Hostname  string  `json:"hostname"`
+	Timestamp string  `json:"timestamp"`
+}
+
+var instanceZone *string
+
+func fetchZone() {
+	url := "http://metadata.google.internal/computeMetadata/v1/instance/zone"
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	for i := 0; i < 3; i++ {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			log.Printf("Failed to create metadata request: %v", err)
+			continue
+		}
+		req.Header.Set("Metadata-Flavor", "Google")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Metadata request failed (attempt %d): %v", i+1, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			body, err := io.ReadAll(resp.Body)
+			if err == nil {
+				zonePath := string(body)
+				parts := strings.Split(zonePath, "/")
+				zone := parts[len(parts)-1]
+				instanceZone = &zone
+				log.Printf("Detected zone: %s", zone)
+				return
+			}
+		}
+		log.Printf("Metadata request returned status %d (attempt %d)", resp.StatusCode, i+1)
+		time.Sleep(1 * time.Second)
+	}
+	log.Println("GCE metadata zone unavailable after 3 retries")
 }
 
 // ORCALoadReport represents the load metrics for ORCA.
@@ -204,12 +249,22 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hostname, _ := os.Hostname()
+
 	w.Header().Set("Content-Type", "application/json")
-	resp := Response{Message: "Hello, World!"}
+	resp := Response{
+		Message:   "Hello, World!",
+		Zone:      instanceZone,
+		Hostname:  hostname,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
 	json.NewEncoder(w).Encode(resp)
 }
 
 func main() {
+	// Query GCE metadata for zone at startup
+	fetchZone()
+
 	// Start metrics background update goroutine
 	go updateMetrics()
 
