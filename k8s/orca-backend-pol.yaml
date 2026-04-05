@@ -17,6 +17,11 @@ spec:
       - orca_load_report.cpu_utilization
       - orca_load_report.eps
       - orca_load_report.rps_fractional
+    balancingMode: CUSTOM_METRICS
+    customMetrics:
+    - name: gke.cpu
+      maxUtilizationPercent: 50
+      dryRun: false
   targetRef:
     group: ""
     kind: Service
