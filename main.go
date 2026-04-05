@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -167,7 +170,7 @@ func orcaMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // updateMetrics periodically updates system utilization and calculates RPS/EPS averages.
-func updateMetrics() {
+func updateMetrics(ctx context.Context) {
 	interval := 5 * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -179,62 +182,68 @@ func updateMetrics() {
 	lastErrorCount = totalErrorCount
 	statsMutex.Unlock()
 
-	for range ticker.C {
-		// 1. Sample current counts and time immediately to define the window
-		statsMutex.Lock()
-		now := time.Now()
-		snapTotalRequests := totalRequestCount
-		snapTotalErrors := totalErrorCount
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Metrics update stopping...")
+			return
+		case <-ticker.C:
+			// 1. Sample current counts and time immediately to define the window
+			statsMutex.Lock()
+			now := time.Now()
+			snapTotalRequests := totalRequestCount
+			snapTotalErrors := totalErrorCount
 
-		elapsed := now.Sub(lastUpdateTime).Seconds()
+			elapsed := now.Sub(lastUpdateTime).Seconds()
 
-		// Calculate delta since last window
-		deltaRequests := snapTotalRequests - lastRequestCount
-		deltaErrors := snapTotalErrors - lastErrorCount
+			// Calculate delta since last window
+			deltaRequests := snapTotalRequests - lastRequestCount
+			deltaErrors := snapTotalErrors - lastErrorCount
 
-		// Update state for next window
-		lastRequestCount = snapTotalRequests
-		lastErrorCount = snapTotalErrors
-		lastUpdateTime = now
-		statsMutex.Unlock()
+			// Update state for next window
+			lastRequestCount = snapTotalRequests
+			lastErrorCount = snapTotalErrors
+			lastUpdateTime = now
+			statsMutex.Unlock()
 
-		// 2. Calculate RPS and EPS (avoid division by zero)
-		var rps, eps float64
-		if elapsed > 0 {
-			rps = float64(deltaRequests) / elapsed
-			eps = float64(deltaErrors) / elapsed
+			// 2. Calculate RPS and EPS (avoid division by zero)
+			var rps, eps float64
+			if elapsed > 0 {
+				rps = float64(deltaRequests) / elapsed
+				eps = float64(deltaErrors) / elapsed
+			}
+
+			// 3. Get System Metrics (blocks for 1s)
+			cpuPercent, _ := cpu.Percent(time.Second, false)
+			vmStat, _ := mem.VirtualMemory()
+
+			// 4. Update the global report state
+			metricsMutex.Lock()
+			if len(cpuPercent) > 0 {
+				val := cpuPercent[0] / 100.0
+				currentMetrics.CPUUtilization = val
+				promCPUUtilization.Set(val)
+			}
+			if vmStat != nil {
+				val := vmStat.UsedPercent / 100.0
+				currentMetrics.MemUtilization = val
+				promMemUtilization.Set(val)
+			}
+			currentMetrics.ApplicationUtilization = 0.1
+			promAppUtilization.Set(0.1)
+
+			currentMetrics.RPSFractional = rps
+			promRPS.Set(rps)
+
+			currentMetrics.EPS = eps
+			promEPS.Set(eps)
+
+			currentMetrics.NamedMetrics = map[string]float64{
+				"total_requests": float64(snapTotalRequests),
+				"total_errors":   float64(snapTotalErrors),
+			}
+			metricsMutex.Unlock()
 		}
-
-		// 3. Get System Metrics (blocks for 1s)
-		cpuPercent, _ := cpu.Percent(time.Second, false)
-		vmStat, _ := mem.VirtualMemory()
-
-		// 4. Update the global report state
-		metricsMutex.Lock()
-		if len(cpuPercent) > 0 {
-			val := cpuPercent[0] / 100.0
-			currentMetrics.CPUUtilization = val
-			promCPUUtilization.Set(val)
-		}
-		if vmStat != nil {
-			val := vmStat.UsedPercent / 100.0
-			currentMetrics.MemUtilization = val
-			promMemUtilization.Set(val)
-		}
-		currentMetrics.ApplicationUtilization = 0.1
-		promAppUtilization.Set(0.1)
-
-		currentMetrics.RPSFractional = rps
-		promRPS.Set(rps)
-
-		currentMetrics.EPS = eps
-		promEPS.Set(eps)
-
-		currentMetrics.NamedMetrics = map[string]float64{
-			"total_requests": float64(snapTotalRequests),
-			"total_errors":   float64(snapTotalErrors),
-		}
-		metricsMutex.Unlock()
 	}
 }
 
@@ -265,15 +274,55 @@ func main() {
 	// Query GCE metadata for zone at startup
 	fetchZone()
 
-	// Start metrics background update goroutine
-	go updateMetrics()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	http.HandleFunc("/", orcaMetricsMiddleware(helloHandler))
-	http.Handle("/metrics", promhttp.Handler())
+	// Start metrics background update goroutine
+	go updateMetrics(ctx)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", orcaMetricsMiddleware(helloHandler))
+	mux.Handle("/metrics", promhttp.Handler())
 
 	port := ":8080"
+	server := &http.Server{
+		Addr:    port,
+		Handler: mux,
+	}
+
+	// Server run context
+	serverCtx, serverStopCtx := context.WithCancel(context.Background())
+
+	// Listen for syscall signals for process to interrupt/quit
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		<-sig
+
+		// Shutdown signal with grace period of 30 seconds
+		shutdownCtx, _ := context.WithTimeout(serverCtx, 30*time.Second)
+
+		go func() {
+			<-shutdownCtx.Done()
+			if shutdownCtx.Err() == context.DeadlineExceeded {
+				log.Fatal("graceful shutdown timed out.. forcing exit.")
+			}
+		}()
+
+		// Trigger graceful shutdown
+		err := server.Shutdown(shutdownCtx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		serverStopCtx()
+	}()
+
 	log.Printf("Server starting on %s...", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
+	err := server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+
+	// Wait for server context to be stopped
+	<-serverCtx.Done()
 }
