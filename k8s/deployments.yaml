@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: cpu-heavy-app-default
 spec:
-  replicas: 6
+  replicas: 4
   selector:
     matchLabels:
       app: cpu-heavy-app
@@ -40,7 +40,7 @@ kind: Deployment
 metadata:
   name: cpu-heavy-app-n4
 spec:
-  replicas: 6
+  replicas: 4
   selector:
     matchLabels:
       app: cpu-heavy-app
@@ -77,7 +77,7 @@ kind: Deployment
 metadata:
   name: cpu-heavy-app-n2
 spec:
-  replicas: 6
+  replicas: 4
   selector:
     matchLabels:
       app: cpu-heavy-app
@@ -96,6 +96,43 @@ spec:
             app: cpu-heavy-app
       nodeSelector:
         cloud.google.com/compute-class: n2-compute-class-any
+      containers:
+      - name: app
+        image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:07
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-heavy-app-c4
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: cpu-heavy-app
+  template:
+    metadata:
+      labels:
+        app: cpu-heavy-app
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        minDomains: 3
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: cpu-heavy-app
+      nodeSelector:
+        cloud.google.com/compute-class: c4-compute-class-any
       containers:
       - name: app
         image: us-central1-docker.pkg.dev/cicd-system-demo-01/whereami/orca-demo:07
