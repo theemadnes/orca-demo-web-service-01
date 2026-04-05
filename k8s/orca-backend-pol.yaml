@@ -4,6 +4,9 @@ metadata:
   name: orca-backend-pol
 spec:
   default:
+    # Configure connection draining
+    connectionDraining:
+      drainingTimeoutSec: 5
     # Access logging configuration for the load balancer.
     logging:
       enabled: true

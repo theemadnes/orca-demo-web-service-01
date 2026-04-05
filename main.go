@@ -14,8 +14,10 @@ import (
 	"syscall"
 	"time"
 
+	orcapb "github.com/cncf/xds/go/xds/data/orca/v3"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -69,19 +71,9 @@ func fetchZone() {
 	log.Println("GCE metadata zone unavailable after 3 retries")
 }
 
-// ORCALoadReport represents the load metrics for ORCA.
-type ORCALoadReport struct {
-	RPSFractional          float64            `json:"rps_fractional"` // Mandatory for Weighted Round Robin
-	EPS                    float64            `json:"eps"`            // Mandatory for Weighted Round Robin
-	ApplicationUtilization float64            `json:"application_utilization,omitempty"`
-	CPUUtilization         float64            `json:"cpu_utilization,omitempty"`
-	NamedMetrics           map[string]float64 `json:"named_metrics,omitempty"`
-	MemUtilization         float64            `json:"mem_utilization,omitempty"`
-}
-
 var (
 	// currentMetrics stores the moving average calculated every interval
-	currentMetrics ORCALoadReport
+	currentMetrics orcapb.OrcaLoadReport
 	metricsMutex   sync.RWMutex
 
 	// counters track the raw request and error counts
@@ -138,14 +130,20 @@ func (w *statusResponseWriter) WriteHeader(code int) {
 
 // orcaMetricsMiddleware wraps an http.HandlerFunc to track requests and errors.
 func orcaMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	// JSON marshaler that emits unpopulated fields if necessary,
+	// but standard ORCA usually prefers snake_case.
+	marshaler := protojson.MarshalOptions{
+		UseProtoNames: true, // Uses snake_case field names from .proto
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Fetch the latest calculated ORCA metrics and set the header.
-		// These reflect the average from the previous 5-second window.
 		metricsMutex.RLock()
-		report := currentMetrics
+		report := &currentMetrics
+		orcaBytes, err := marshaler.Marshal(report)
 		metricsMutex.RUnlock()
 
-		if orcaBytes, err := json.Marshal(report); err == nil {
+		if err == nil {
 			w.Header().Set("endpoint-load-metrics", fmt.Sprintf("JSON %s", string(orcaBytes)))
 		}
 
@@ -159,8 +157,6 @@ func orcaMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		statsMutex.Lock()
 		totalRequestCount++
 		promTotalRequests.Inc()
-		// Only count 5xx (Server Errors) as EPS.
-		// 4xx (Client Errors like 404) are usually excluded from ORCA error rates.
 		if sw.statusCode >= 500 {
 			totalErrorCount++
 			promTotalErrors.Inc()
@@ -221,7 +217,7 @@ func updateMetrics(ctx context.Context) {
 			metricsMutex.Lock()
 			if len(cpuPercent) > 0 {
 				val := cpuPercent[0] / 100.0
-				currentMetrics.CPUUtilization = val
+				currentMetrics.CpuUtilization = val
 				promCPUUtilization.Set(val)
 			}
 			if vmStat != nil {
@@ -232,10 +228,10 @@ func updateMetrics(ctx context.Context) {
 			currentMetrics.ApplicationUtilization = 0.1
 			promAppUtilization.Set(0.1)
 
-			currentMetrics.RPSFractional = rps
+			currentMetrics.RpsFractional = rps
 			promRPS.Set(rps)
 
-			currentMetrics.EPS = eps
+			currentMetrics.Eps = eps
 			promEPS.Set(eps)
 
 			currentMetrics.NamedMetrics = map[string]float64{
