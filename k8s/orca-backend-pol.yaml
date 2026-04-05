@@ -17,6 +17,8 @@ spec:
       - orca_load_report.cpu_utilization
       - orca_load_report.eps
       - orca_load_report.rps_fractional
+      - orca_load_report.application_utilization
+      - orca_load_report.named_metrics
     balancingMode: CUSTOM_METRICS
     customMetrics:
     - name: gke.cpu
