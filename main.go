@@ -133,7 +133,8 @@ func orcaMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	// JSON marshaler that emits unpopulated fields if necessary,
 	// but standard ORCA usually prefers snake_case.
 	marshaler := protojson.MarshalOptions{
-		UseProtoNames: true, // Uses snake_case field names from .proto
+		UseProtoNames:   true, // Uses snake_case field names from .proto
+		EmitUnpopulated: true,
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
