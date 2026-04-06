@@ -226,8 +226,8 @@ func updateMetrics(ctx context.Context) {
 				currentMetrics.MemUtilization = val
 				promMemUtilization.Set(val)
 			}
-			currentMetrics.ApplicationUtilization = 0.1
-			promAppUtilization.Set(0.1)
+			currentMetrics.ApplicationUtilization = 0
+			promAppUtilization.Set(0)
 
 			currentMetrics.RpsFractional = rps
 			promRPS.Set(rps)
