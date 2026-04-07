@@ -25,7 +25,7 @@ spec:
     balancingMode: CUSTOM_METRICS
     customMetrics:
     - name: gke.cpu
-      maxUtilizationPercent: 80
+      maxUtilizationPercent: 50
       dryRun: false
   targetRef:
     group: ""
